@@ -1,36 +1,52 @@
-# DS2500 Admissions Analysis
+# DS2500 Admissions & Graduation Rate Analysis
 
-Data analysis project exploring demographic differences in admissions outcomes using statistical tests and visualization.
+Analysis of racial gaps in six-year graduation rates across U.S. four-year institutions, using IPEDS 2024 data and selectivity-based comparisons.
 
-## Project description
 
-This project is based on a DS2500 course project completed by a team of three students. It analyzes how admissions outcomes differ across racial groups and levels of institutional selectivity (high vs. open admissions). Using cleaned datasets, statistical tests, and visualizations, the project highlights where gaps are largest and how they relate to educational equity.
+## Project Overview
 
-## Repository structure
+This project examines racial disparities in six-year graduation rates across U.S. four-year colleges and universities. Using IPEDS 2024 survey files (HD, ADM, EF, GR), we analyze how graduation outcomes differ for White, Black, Hispanic, and Asian students, and how these gaps change across institutional selectivity tiers (Highly Selective, Selective, Open/Less Selective).
 
-- **code/** – Python scripts and notebooks used for cleaning and analysis  
-- **data/** – Raw and cleaned datasets used in the project  
-- **plots/** – Visualizations generated from the analysis  
-- **analysis.zip** – Archived version of the original project files
+## Data & Methods
 
-## Data and methods
+All datasets were drawn from IPEDS 2024 and merged using the UNITID institutional identifier. Key data sources include:
 
-The datasets include admissions outcomes and demographic breakdowns across institutions, with variables such as race, selectivity level, and acceptance measures. Key statistical outputs include:
+- **HD** — institutional characteristics  
+- **ADM** — admissions counts, acceptance rate, yield  
+- **EF** — fall enrollment by race and gender  
+- **GR** — graduation cohort denominators and completers  
 
-- Mean scores for high vs. open admissions institutions
-- t-statistics and p-values comparing groups
-- Cohen’s d effect sizes
+Graduation rates were computed at the group level (completers / cohort size). Rates were scaled to [0, 1], infinite values replaced with NaN, and flag columns removed. Institutions were categorized by selectivity using acceptance rate:
 
-Methods used:
+- Highly Selective: < 30%  
+- Selective: 30–60%  
+- Open/Less Selective: > 60%  
 
-- Data cleaning with Python (pandas)
-- Independent samples t-tests
-- Effect size calculation (Cohen’s d)
-- Visualization with matplotlib and seaborn
+Gender gaps and race enrollment proportions were also calculated.
 
-## Key findings
+## Key Findings
 
-- Differences between high and open admissions institutions are statistically significant across all racial groups (very small p-values).
-- Effect sizes are large, indicating meaningful practical differences in outcomes.
-- Black and Asian groups show some of the largest gaps between high and open admissions outcomes.
-- Visualizations reveal clear patterns in selectivity and acceptance that align with concerns about educational equity.
+- Asian students graduate at the highest rate (58.8%), followed by White (56.0%), Hispanic (48.6%), and Black students (40.9%).
+- Graduation rates improve at more selective institutions for all groups, reaching the mid‑80% range at highly selective schools.
+- Racial gaps narrow at highly selective institutions (e.g., Black–White gap ≈ 4 points) and widen substantially at open-access schools (≈ 17 points).
+- Asian students outperform White students at every selectivity tier.
+- Open-access institutions show the widest variation in outcomes, ranging from near-zero to near-perfect graduation rates.
+
+## Repository Structure
+
+- **code/** — Python scripts and notebooks  
+- **data/** — raw and cleaned datasets  
+- **plots/** — visualizations generated from analysis  
+- **analysis.zip** — archived project files  
+- **Project Report.pdf** — full DS2500 report
+
+## Authors
+
+- Isha Hassan (Lead for code and analysis)
+- Emitis Dastmalchi (Report scribe) 
+- Aesha Patel (Presentation developer)
+
+## Full Report
+
+The complete DS2500 project report is included in this repository as **Project Report - Emitis, Aesha, Isha DS 2500.pdf**.
+
