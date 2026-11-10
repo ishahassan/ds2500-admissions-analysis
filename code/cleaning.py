@@ -2,37 +2,34 @@
 DS 2500 - IPEDS Data Project
 cleaning.py  —  Merge & Clean All Four Datasets
 =================================================
+Run from anywhere:  python code/cleaning.py
+Reads raw IPEDS files from data/ and writes analysis_clean.csv and
+four_year_clean.csv back to data/.
 """
-import os
+from pathlib import Path
+import sys
+# Windows consoles default to cp1252 and crash on characters like "→"
+sys.stdout.reconfigure(encoding="utf-8")
 import pandas as pd
 import numpy as np
 
-os.chdir(r"C:\Users\ishah\Documents\GitHub\ds2500\project thingsss")
+# Resolve paths relative to this file so the script works on any machine
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def safe_rate(num, den):
+    """num / den, with a zero denominator giving NaN (not inf or a fake 100%)."""
+    return (num / den.replace(0, np.nan)).clip(0, 1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 1: LOAD RAW FILES
 # ─────────────────────────────────────────────────────────────────────────────
 
-# adm = pd.read_csv("adm2024.csv")
-# ef  = pd.read_csv("ef2024a (1).csv")
-# gr  = pd.read_csv("gr2024 2.csv")
-# hd  = pd.read_csv("hd2024.csv", encoding="utf-8-sig")
-
-print("loading adm...")
-adm = pd.read_csv("adm2024.csv")
-print("loading ef...")
-ef  = pd.read_csv("ef2024a (1).csv")
-print("loading gr...")
-gr  = pd.read_csv("gr2024 2.csv")
-print("loading hd...")
-hd  = pd.read_csv("hd2024.csv", encoding="utf-8-sig")
-print("all loaded!")
-
-print("ADM columns:", list(adm.columns[:5]))
-print("EF columns:", list(ef.columns[:5]))
-print("GR columns:", list(gr.columns[:5]))
-print("HD columns:", list(hd.columns[:5]))
+adm = pd.read_csv(DATA_DIR / "adm2024.csv")
+ef  = pd.read_csv(DATA_DIR / "ef2024a.csv")
+gr  = pd.read_csv(DATA_DIR / "gr2024.csv")
+hd  = pd.read_csv(DATA_DIR / "hd2024.csv", encoding="utf-8-sig")
 
 print("Loaded raw files:")
 print(f"  ADM : {adm.shape[0]:,} rows x {adm.shape[1]} cols")
@@ -112,8 +109,8 @@ adm_clean = adm_clean.rename(columns={
 })
 
 # Computed rates
-adm_clean["accept_rate"] = (adm_clean["admitted_total"] / adm_clean["applied_total"]).clip(0, 1)
-adm_clean["yield_rate"]  = (adm_clean["enrolled_total"] / adm_clean["admitted_total"]).clip(0, 1)
+adm_clean["accept_rate"] = safe_rate(adm_clean["admitted_total"], adm_clean["applied_total"])
+adm_clean["yield_rate"]  = safe_rate(adm_clean["enrolled_total"], adm_clean["admitted_total"])
 
 # SAT/ACT columns — keep the score distributions (25th/50th/75th percentiles)
 score_cols = ["SATNUM", "SATPCT", "ACTNUM", "ACTPCT",
@@ -163,12 +160,13 @@ race_cols = ["enroll_aian", "enroll_asian", "enroll_black", "enroll_hispanic",
 
 for col in race_cols:
     pct_col = col.replace("enroll_", "pct_")
-    ef_ug[pct_col] = (ef_ug[col] / ef_ug["enroll_total"]).clip(0, 1)
+    ef_ug[pct_col] = safe_rate(ef_ug[col], ef_ug["enroll_total"])
 
-ef_ug["pct_female"] = (ef_ug["enroll_female"] / ef_ug["enroll_total"]).clip(0, 1)
+ef_ug["pct_female"] = safe_rate(ef_ug["enroll_female"], ef_ug["enroll_total"])
 
 # Keep only the useful columns
-ef_keep = ["UNITID", "enroll_total", "enroll_male", "enroll_female", "pct_female"] + \
+# (pct_female is picked up by the "pct_" filter below, so it isn't listed here)
+ef_keep = ["UNITID", "enroll_total", "enroll_male", "enroll_female"] + \
           race_cols + [c for c in ef_ug.columns if c.startswith("pct_")]
 ef_clean = ef_ug[[c for c in ef_keep if c in ef_ug.columns]].copy()
 
@@ -176,14 +174,17 @@ print(f"\nEF clean: {ef_clean.shape[0]:,} schools (undergrad totals)")
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 5: CLEAN GR (Graduation Rates)
 # ─────────────────────────────────────────────────────────────────────────────
-# GRTYPE=1, CHRTSTAT=10 → total cohort (denominator)
+# GRTYPE=2, CHRTSTAT=12 → adjusted cohort (denominator): the revised cohort
+#                          minus allowable exclusions (death, military service,
+#                          etc.). This is the denominator IPEDS uses for its
+#                          official graduation rate.
 # GRTYPE=3, CHRTSTAT=13 → completers within 150% of normal time (numerator)
-# (GRTYPE=2 is the cohort after exclusions, not completers)
+# (GRTYPE=1 / CHRTSTAT=10 is the revised cohort BEFORE exclusions — not used.)
 
 gr = gr.drop(columns=[c for c in gr.columns if c.startswith("X")])
 
-# Cohort size
-gr_cohort = gr[(gr["GRTYPE"] == 1) & (gr["CHRTSTAT"] == 10)][
+# Cohort size (adjusted cohort)
+gr_cohort = gr[(gr["GRTYPE"] == 2) & (gr["CHRTSTAT"] == 12)][
     ["UNITID", "GRTOTLT", "GRTOTLM", "GRTOTLW",
      "GRBKAAT", "GRHISPT", "GRWHITT", "GRASIAT"]
 ].rename(columns={
@@ -213,22 +214,19 @@ gr_completers = gr[(gr["GRTYPE"] == 3) & (gr["CHRTSTAT"] == 13)][
 # Merge cohort + completers
 gr_merged = gr_cohort.merge(gr_completers, on="UNITID", how="inner")
 
-# Compute graduation rates
 # Compute graduation rates — divide each group's completers by their own cohort size
-gr_merged["grad_rate"]          = (gr_merged["grad_total"]    / gr_merged["cohort_total"]).clip(0, 1)
-gr_merged["grad_rate_male"]     = (gr_merged["grad_male"]     / gr_merged["cohort_male"]).clip(0, 1)
-gr_merged["grad_rate_female"]   = (gr_merged["grad_female"]   / gr_merged["cohort_female"]).clip(0, 1)
-gr_merged["grad_rate_black"]    = (gr_merged["grad_black"]    / gr_merged["cohort_black"]).clip(0, 1)
-gr_merged["grad_rate_hispanic"] = (gr_merged["grad_hispanic"] / gr_merged["cohort_hispanic"]).clip(0, 1)
-gr_merged["grad_rate_white"]    = (gr_merged["grad_white"]    / gr_merged["cohort_white"]).clip(0, 1)
-gr_merged["grad_rate_asian"]    = (gr_merged["grad_asian"]    / gr_merged["cohort_asian"]).clip(0, 1)
+gr_merged["grad_rate"]          = safe_rate(gr_merged["grad_total"], gr_merged["cohort_total"])
+gr_merged["grad_rate_male"]     = safe_rate(gr_merged["grad_male"], gr_merged["cohort_male"])
+gr_merged["grad_rate_female"]   = safe_rate(gr_merged["grad_female"], gr_merged["cohort_female"])
+gr_merged["grad_rate_black"]    = safe_rate(gr_merged["grad_black"], gr_merged["cohort_black"])
+gr_merged["grad_rate_hispanic"] = safe_rate(gr_merged["grad_hispanic"], gr_merged["cohort_hispanic"])
+gr_merged["grad_rate_white"]    = safe_rate(gr_merged["grad_white"], gr_merged["cohort_white"])
+gr_merged["grad_rate_asian"]    = safe_rate(gr_merged["grad_asian"], gr_merged["cohort_asian"])
 
 # Gender gap: positive = women graduate at higher rate
 gr_merged["gender_gap"] = gr_merged["grad_rate_female"] - gr_merged["grad_rate_male"]
 
-gr_merged = gr_merged.replace([np.inf, -np.inf], np.nan)
-
-print(f"\nGR clean: {gr_merged.shape[0]:,} schools (bachelor's seekers)")
+print(f"\nGR clean: {gr_merged.shape[0]:,} schools (4-year, all degree-seeking cohort)")
 print(f"  Avg 6-year grad rate : {gr_merged['grad_rate'].mean():.1%}")
 print(f"  Avg gender gap       : {gr_merged['gender_gap'].mean():+.1%}  (+ = women higher)")
 # ─────────────────────────────────────────────────────────────────────────────
@@ -263,12 +261,12 @@ print(missing[missing > 0].sort_values(ascending=False).to_string())
 # STEP 8: SAVE CLEAN FILE
 # ─────────────────────────────────────────────────────────────────────────────
 
-analysis.to_csv("analysis_clean.csv", index=False)
+analysis.to_csv(DATA_DIR / "analysis_clean.csv", index=False)
 print("\n SAVED to analysis_clean.csv — use for analysis!")
 
 # Filter to 4-year schools only for analysis
 four_year = analysis[analysis["level_label"] == "4-year"].copy()
-four_year.to_csv("four_year_clean.csv", index=False)
+four_year.to_csv(DATA_DIR / "four_year_clean.csv", index=False)
 print(f"\n 4-year schools only: {four_year.shape[0]:,} schools")
 print(f"   With grad rate data : {four_year['grad_rate'].notna().sum():,} schools")
 print(f"   With admissions data: {four_year['accept_rate'].notna().sum():,} schools")

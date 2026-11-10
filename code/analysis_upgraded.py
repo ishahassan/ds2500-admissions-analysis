@@ -6,34 +6,44 @@ Research Question:
   At 4-year institutions, which racial/ethnic groups face the largest
   graduation gaps — and does school selectivity make it better or worse?
 
-Added over original analysis.py:
-  - Pearson correlation + Welch t-tests + Cohen's d (Parts 6-7)
-  - Chi-square test on enrollment composition (Part 8)
-  - OLS regression: predict grad rate from selectivity + sector (Part 9)
-  - Random Forest: feature importance for graduation rate (Part 10)
-  - 3 new visualizations: regression line on scatter, RF feature importance,
-    and box plots of grad rate distribution by selectivity tier
-  - All 4 original plots preserved unchanged
+Contents:
+  - Parts 1-4: grad rates by race, by selectivity tier, and gaps vs. White
+    students (plots 1-3)
+  - Part 5: acceptance rate vs. grad rate scatter with OLS trend line
+    (plot4), and grad rate distribution by selectivity tier (plot5)
+  - Parts 6-7: Pearson correlation, Welch t-tests + Cohen's d
+  - Part 8: chi-square test on enrollment composition
+  - Part 9: OLS regression predicting grad rate from selectivity, sector,
+    and enrollment mix, with 5-fold cross-validated R²
+
+Run after cleaning.py:  python code/analysis_upgraded.py
+Plots are written to plots/, test results to data/ttest_results.csv.
 """
 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
-import os
+from pathlib import Path
+import sys
+# Windows consoles default to cp1252 and crash on characters like "→"
+sys.stdout.reconfigure(encoding="utf-8")
 from scipy import stats
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_val_score
-from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import r2_score, mean_squared_error
 
-os.chdir(r"C:\Users\ishah\Documents\GitHub\ds2500\project thingsss")
+# Resolve paths relative to this file so the script works on any machine
+ROOT      = Path(__file__).resolve().parent.parent
+DATA_DIR  = ROOT / "data"
+PLOTS_DIR = ROOT / "plots"
+PLOTS_DIR.mkdir(exist_ok=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOAD DATA
 # ─────────────────────────────────────────────────────────────────────────────
 
-df = pd.read_csv("four_year_clean.csv")
+df = pd.read_csv(DATA_DIR / "four_year_clean.csv")
 
 df = df[df["sector_label"].isin([
     "Public 4-year",
@@ -52,7 +62,7 @@ race_cols = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PART 1: NATIONAL BASELINE — Average grad rate by racial group (ORIGINAL)
+# PART 1: NATIONAL BASELINE — Average grad rate by racial group
 # ─────────────────────────────────────────────────────────────────────────────
 
 nat_avg = {label: df[col].mean() for col, label in race_cols.items()}
@@ -78,34 +88,39 @@ for bar, val in zip(bars, nat_df.values):
     ax.text(bar.get_x() + bar.get_width()/2, val + 0.01, f"{val:.1%}",
             ha="center", va="bottom", fontsize=10, fontweight="bold")
 plt.tight_layout()
-plt.savefig("plot1_national_baseline.png", dpi=150)
+plt.savefig(PLOTS_DIR / "plot1_national_baseline.png", dpi=150)
 plt.close()
 print("Saved plot1_national_baseline.png")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PART 2: SELECTIVITY BUCKETS (ORIGINAL)
+# PART 2: SELECTIVITY BUCKETS
 # ─────────────────────────────────────────────────────────────────────────────
 
 df_adm = df.dropna(subset=["accept_rate", "grad_rate"]).copy()
 
-df_adm["selectivity"] = pd.cut(
+# Tiers match their labels exactly: < 30%, 30–60% (inclusive), > 60%.
+# (pd.cut's default right-closed bins would put a school at exactly 30%
+#  into "< 30%", so the edges are written out explicitly.)
+def selectivity_tier(rate, labels):
+    tier = np.select([rate < 0.30, rate <= 0.60, rate <= 1.0], labels, default=None)
+    return pd.Categorical(tier, categories=labels, ordered=True)
+
+df_adm["selectivity"] = selectivity_tier(
     df_adm["accept_rate"],
-    bins=[0, 0.30, 0.60, 1.01],
-    labels=["Highly Selective\n(< 30%)", "Selective\n(30–60%)", "Open/Less Selective\n(> 60%)"]
+    ["Highly Selective\n(< 30%)", "Selective\n(30–60%)", "Open/Less Selective\n(> 60%)"]
 )
 
 # Flat labels for stats (no newlines)
-df_adm["selectivity_flat"] = pd.cut(
+df_adm["selectivity_flat"] = selectivity_tier(
     df_adm["accept_rate"],
-    bins=[0, 0.30, 0.60, 1.01],
-    labels=["Highly Selective", "Selective", "Open/Less Selective"]
+    ["Highly Selective", "Selective", "Open/Less Selective"]
 )
 
 print("Selectivity bucket counts:")
 print(df_adm["selectivity"].value_counts().sort_index().to_string())
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PART 3: GRAD RATES BY RACE WITHIN EACH SELECTIVITY BUCKET (ORIGINAL)
+# PART 3: GRAD RATES BY RACE WITHIN EACH SELECTIVITY BUCKET
 # ─────────────────────────────────────────────────────────────────────────────
 
 sel_groups = df_adm.groupby("selectivity", observed=True)[list(race_cols.keys())].mean()
@@ -134,12 +149,12 @@ ax.set_ylabel("Avg 6-Year Graduation Rate")
 ax.set_xlabel("School Selectivity (Acceptance Rate)")
 ax.legend(title="Race/Ethnicity", bbox_to_anchor=(1.01, 1), loc="upper left")
 plt.tight_layout()
-plt.savefig("plot2_selectivity_by_race.png", dpi=150)
+plt.savefig(PLOTS_DIR / "plot2_selectivity_by_race.png", dpi=150)
 plt.close()
 print("Saved plot2_selectivity_by_race.png")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PART 4: GAP RELATIVE TO WHITE STUDENTS BY SELECTIVITY (ORIGINAL)
+# PART 4: GAP RELATIVE TO WHITE STUDENTS BY SELECTIVITY
 # ─────────────────────────────────────────────────────────────────────────────
 
 gap_df = sel_groups.copy()
@@ -165,13 +180,13 @@ ax.set_ylabel("Gap vs. White Students\n(positive = lower grad rate)")
 ax.set_xlabel("School Selectivity (Acceptance Rate)")
 ax.legend(bbox_to_anchor=(1.01, 1), loc="upper left")
 plt.tight_layout()
-plt.savefig("plot3_gap_by_selectivity.png", dpi=150)
+plt.savefig(PLOTS_DIR / "plot3_gap_by_selectivity.png", dpi=150)
 plt.close()
 print("Saved plot3_gap_by_selectivity.png")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PART 5: SCATTER — Acceptance Rate vs Grad Rate colored by sector (ORIGINAL)
-#         + NEW: OLS regression line overlaid
+# PART 5: SCATTER — Acceptance Rate vs Grad Rate colored by sector
+#         with OLS regression line overlaid
 # ─────────────────────────────────────────────────────────────────────────────
 
 sector_colors = {
@@ -204,12 +219,12 @@ ax.set_xlabel("Acceptance Rate (lower = more selective)")
 ax.set_ylabel("6-Year Graduation Rate")
 ax.legend(title="Sector", bbox_to_anchor=(1.01, 1), loc="upper left")
 plt.tight_layout()
-plt.savefig("plot4_scatter_accept_vs_grad.png", dpi=150)
+plt.savefig(PLOTS_DIR / "plot4_scatter_accept_vs_grad.png", dpi=150)
 plt.close()
 print("Saved plot4_scatter_accept_vs_grad.png")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NEW PLOT 5: Box plots — grad rate distribution by selectivity tier
+# PLOT 5: Box plots — grad rate distribution by selectivity tier
 # Shows spread, not just means — more honest picture of variation
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -230,7 +245,7 @@ ax.set_title("Distribution of 6-Year Graduation Rates by Selectivity Tier\n4-Yea
 ax.set_ylabel("6-Year Graduation Rate")
 ax.set_xlabel("School Selectivity (Acceptance Rate)")
 plt.tight_layout()
-plt.savefig("plot5_boxplot_selectivity.png", dpi=150)
+plt.savefig(PLOTS_DIR / "plot5_boxplot_selectivity.png", dpi=150)
 plt.close()
 print("Saved plot5_boxplot_selectivity.png")
 
@@ -241,9 +256,9 @@ print("Saved plot5_boxplot_selectivity.png")
 print("\n" + "=" * 60)
 print("PART 6: Pearson Correlation — Accept Rate vs. Grad Rate")
 valid = df_adm[["accept_rate", "grad_rate"]].dropna()
-r, p  = stats.pearsonr(valid["accept_rate"], valid["grad_rate"])
-print(f"  r = {r:.3f},  p = {p:.2e}")
-print(f"  → {'Significant' if p < 0.05 else 'Not significant'} negative correlation: "
+r, p_r = stats.pearsonr(valid["accept_rate"], valid["grad_rate"])
+print(f"  r = {r:.3f},  p = {p_r:.2e}")
+print(f"  → {'Significant' if p_r < 0.05 else 'Not significant'} negative correlation: "
       f"lower acceptance rate predicts higher graduation rate")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -289,7 +304,7 @@ for label, col in test_cols.items():
           f"{t:>8.2f} {p:>9.2e}{sig}  {d:>6.2f}  {interpret_d(d):>10}")
 
 print("  Significance: *** p<0.001  ** p<0.01  * p<0.05  ns = not significant")
-pd.DataFrame(ttest_results).to_csv("ttest_results.csv", index=False)
+pd.DataFrame(ttest_results).to_csv(DATA_DIR / "ttest_results.csv", index=False)
 print("Saved ttest_results.csv")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -351,8 +366,13 @@ print("\n  Coefficients:")
 for feat, coef in sorted(zip(feature_cols, ols.coef_), key=lambda x: abs(x[1]), reverse=True):
     print(f"    {feat:<45} {coef:+.4f}")
 print(f"  Intercept: {ols.intercept_:.4f}")
-print("\n  Interpretation: acceptance rate has the strongest negative coefficient —")
-print("  each 1pp increase in accept rate predicts lower graduation rate, holding other factors constant.")
+top_feat, top_coef = max(zip(feature_cols, ols.coef_), key=lambda x: abs(x[1]))
+acc_coef = dict(zip(feature_cols, ols.coef_))["accept_rate"]
+print(f"\n  Largest coefficient: {top_feat} ({top_coef:+.4f})")
+print(f"  accept_rate: a 10pp higher acceptance rate predicts a {acc_coef * 0.10:+.1%} change")
+print("  in graduation rate, holding the other features constant.")
+print("  Note: features are on different scales (enroll_total is a raw count),")
+print("  so coefficient sizes are not directly comparable across features.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SUMMARY
@@ -360,10 +380,10 @@ print("  each 1pp increase in accept rate predicts lower graduation rate, holdin
 
 print("\n" + "=" * 60)
 print("ALL OUTPUTS SAVED:")
-print("  Plots : plot1 through plot6 (.png)")
-print("  Stats : ttest_results.csv")
+print("  Plots : plots/plot1 through plot5 (.png)")
+print("  Stats : data/ttest_results.csv")
 print("\nKey findings:")
-print(f"  Pearson r (accept rate vs grad rate) : {r:.3f}  p={p:.2e}")
+print(f"  Pearson r (accept rate vs grad rate) : {r:.3f}  p={p_r:.2e}")
 print(f"  Black–White gap: highly selective={gap_df['Black gap'].iloc[0]:.1%}  "
       f"open={gap_df['Black gap'].iloc[2]:.1%}")
 print(f"  OLS CV R² : {cv_r2:.3f}")
