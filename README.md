@@ -66,3 +66,5 @@ Run `cleaning.py` first; `analysis_upgraded.py` reads its output. The scripts ca
 
 The complete DS2500 project report is included in this repository as **Project Report - Emitis, Aesha, Isha DS 2500.pdf**.
 
+**Note:** The report reflects our original class submission (April 2026). After the class, I retested the code and corrected the graduation-rate calculation to use IPEDS's official adjusted cohort, and fixed how schools at exactly 30% acceptance were assigned to tiers. The numbers in Key Findings above are the corrected ones. The changes are small (under 1 percentage point) and don't change any conclusions.
+
